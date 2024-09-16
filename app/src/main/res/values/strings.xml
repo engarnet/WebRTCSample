@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">WebRTCSample</string>
+    <string name="title_activity_caller">RTCCallerActivity</string>
+    <string name="title_activity_receiver">RTCReceiverActivity</string>
 </resources>
