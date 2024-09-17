@@ -40,8 +40,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.webrtc.CameraVideoCapturer
 import org.webrtc.DataChannel
-import org.webrtc.DefaultVideoDecoderFactory
-import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
@@ -53,10 +51,8 @@ import org.webrtc.PeerConnection.IceGatheringState
 import org.webrtc.PeerConnection.PeerConnectionState
 import org.webrtc.PeerConnection.RTCConfiguration
 import org.webrtc.PeerConnection.SdpSemantics
-import org.webrtc.PeerConnectionFactory
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
-import org.webrtc.SurfaceTextureHelper
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoSink
 import java.io.BufferedReader
@@ -88,6 +84,11 @@ class CallerActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        peerConnection?.close()
     }
 }
 
@@ -170,114 +171,73 @@ private fun call(
     context: Context,
     ipAddress: String,
 ) {
-    PeerConnectionFactory.initialize(
-        PeerConnectionFactory.InitializationOptions.builder(context)
-            .setFieldTrials("WebRTC-H264HighProfile/Enabled/")
-            .setEnableInternalTracer(true)
-            .createInitializationOptions()
-    )
-    val audioDeviceModule = CommonLogic.initAudioDevice(context)
+    val factory = CommonLogic.createPeerConnectionFactory(context, eglBase)
 
-    val encoderFactory = DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true)
-    val decoderFactory = DefaultVideoDecoderFactory(eglBase.eglBaseContext)
+    peerConnection = factory.createPeerConnection(
+        RTCConfiguration(emptyList()).apply {
+            sdpSemantics = SdpSemantics.UNIFIED_PLAN
+            continualGatheringPolicy = ContinualGatheringPolicy.GATHER_ONCE
+        }, object : PeerConnection.Observer {
+            override fun onIceGatheringChange(p0: IceGatheringState?) {
+                Log.d("WebRTCSample", "onIceGatheringChange: $p0")
+                if (p0 == IceGatheringState.COMPLETE) {
+                    val offer = peerConnection?.localDescription?.description ?: return
+                    GlobalScope.launch {
+                        withContext(Dispatchers.IO) {
+                            val answer = doSignaling(offer, ipAddress)
+                            withContext(Dispatchers.Main) {
+                                peerConnection!!.setRemoteDescription(object : SdpObserver {
+                                    override fun onSetSuccess() {
+                                        Log.d("WebRTCSample", "onSetSuccess()")
+                                        CommonLogic.initPlatformDeviceAudioManager(context)
+                                        videoCapturer?.startCapture(1280, 720, 25)
+                                    }
 
-    val factory = PeerConnectionFactory.builder()
-        .setOptions(PeerConnectionFactory.Options())
-        .setAudioDeviceModule(audioDeviceModule)
-        .setVideoEncoderFactory(encoderFactory)
-        .setVideoDecoderFactory(decoderFactory)
-        .createPeerConnectionFactory()
+                                    override fun onSetFailure(s: String) {
+                                        Log.e("WebRTCSample", "onSetFailure() $s")
+                                    }
 
-    val rtcConfig = RTCConfiguration(emptyList())
-    rtcConfig.sdpSemantics = SdpSemantics.UNIFIED_PLAN
-    rtcConfig.continualGatheringPolicy = ContinualGatheringPolicy.GATHER_ONCE
-
-    peerConnection = factory.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
-        override fun onIceGatheringChange(p0: IceGatheringState?) {
-            Log.d("WebRTCSample", "onIceGatheringChange: $p0")
-            if (p0 == IceGatheringState.COMPLETE) {
-                val offer = peerConnection?.localDescription?.description ?: return
-                GlobalScope.launch {
-                    withContext(Dispatchers.IO) {
-                        val answer = doSignaling(offer, ipAddress)
-                        withContext(Dispatchers.Main) {
-                            peerConnection!!.setRemoteDescription(object : SdpObserver {
-                                override fun onSetSuccess() {
-                                    Log.d("WebRTCSample", "onSetSuccess()")
-                                    CommonLogic.setupDeviceAudioManager(context)
-                                    videoCapturer?.startCapture(1280, 720, 25)
-                                }
-
-                                override fun onSetFailure(s: String) {
-                                    Log.e("WebRTCSample", "onSetFailure() $s")
-                                }
-
-                                override fun onCreateSuccess(p0: SessionDescription?) = Unit
-                                override fun onCreateFailure(p0: String?) = Unit
-                            }, SessionDescription(SessionDescription.Type.ANSWER, answer))
+                                    override fun onCreateSuccess(p0: SessionDescription?) = Unit
+                                    override fun onCreateFailure(p0: String?) = Unit
+                                }, SessionDescription(SessionDescription.Type.ANSWER, answer))
+                            }
                         }
                     }
                 }
             }
-        }
 
-        override fun onIceConnectionChange(p0: IceConnectionState?) {
-            Log.d("WebRTCSample", "onIceConnectionChange: $p0")
-            when (p0) {
-                IceConnectionState.FAILED,
-                IceConnectionState.DISCONNECTED,
-                IceConnectionState.CLOSED -> {
-                    // TODO: connection lost
+            override fun onIceConnectionChange(p0: IceConnectionState?) {
+                Log.d("WebRTCSample", "onIceConnectionChange: $p0")
+                when (p0) {
+                    IceConnectionState.FAILED,
+                    IceConnectionState.DISCONNECTED,
+                    IceConnectionState.CLOSED -> {
+                        // TODO: connection lost
+                    }
+
+                    else -> Unit
                 }
-
-                else -> Unit
             }
-        }
 
-        override fun onAddStream(p0: MediaStream?) {
-            Log.d("WebRTCSample", "onAddStream: $p0")
-            p0?.videoTracks?.get(0)?.addSink(videoSink)
-        }
+            override fun onAddStream(p0: MediaStream?) {
+                Log.d("WebRTCSample", "onAddStream: $p0")
+                p0?.videoTracks?.get(0)?.addSink(videoSink)
+            }
 
-        override fun onConnectionChange(p0: PeerConnectionState?) {
-            Log.d("WebRTCSample", "onConnectionChange: $p0")
-        }
+            override fun onConnectionChange(p0: PeerConnectionState?) {
+                Log.d("WebRTCSample", "onConnectionChange: $p0")
+            }
 
-        override fun onSignalingChange(p0: PeerConnection.SignalingState?) = Unit
-        override fun onIceConnectionReceivingChange(p0: Boolean) = Unit
-        override fun onIceCandidate(p0: IceCandidate?) = Unit
-        override fun onIceCandidatesRemoved(p0: Array<out IceCandidate>?) = Unit
-        override fun onRemoveStream(p0: MediaStream?) = Unit
-        override fun onDataChannel(p0: DataChannel?) = Unit
-        override fun onRenegotiationNeeded() = Unit
-    })
+            override fun onSignalingChange(p0: PeerConnection.SignalingState?) = Unit
+            override fun onIceConnectionReceivingChange(p0: Boolean) = Unit
+            override fun onIceCandidate(p0: IceCandidate?) = Unit
+            override fun onIceCandidatesRemoved(p0: Array<out IceCandidate>?) = Unit
+            override fun onRemoveStream(p0: MediaStream?) = Unit
+            override fun onDataChannel(p0: DataChannel?) = Unit
+            override fun onRenegotiationNeeded() = Unit
+        })
 
-    val audioSource = factory.createAudioSource(MediaConstraints().apply {
-        mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
-        mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
-        mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
-        mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
-    })
-    val localAudioTrack = factory.createAudioTrack("audio1", audioSource)
-    localAudioTrack?.setEnabled(true)
-    peerConnection?.addTrack(localAudioTrack, listOf("stream1"))
-
-    videoCapturer = CommonLogic.initCameraVideoCapturer()
-    val surfaceTextureHelper =
-        SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
-    val videoSource = factory.createVideoSource(videoCapturer!!.isScreencast)
-    videoCapturer?.initialize(surfaceTextureHelper, context, videoSource.capturerObserver)
-
-    val videoTrack = factory.createVideoTrack("video1", videoSource).apply {
-        setEnabled(true)
-    }
-
-    val rtpSender = peerConnection?.addTrack(videoTrack, listOf("stream1"))
-    // needed to have a high resolution/framerate
-    for (encoding in rtpSender!!.parameters.encodings) {
-        encoding.maxBitrateBps = 10000 * 1000 * 8 // 10 MB/s - just a high value
-        encoding.scaleResolutionDownBy = 2.0
-    }
+    videoCapturer = CommonLogic.initWebRTCVideoAndAudio(context, eglBase, factory, peerConnection)
 
     peerConnection?.createOffer(object : SdpObserver {
         override fun onCreateSuccess(p0: SessionDescription?) {
