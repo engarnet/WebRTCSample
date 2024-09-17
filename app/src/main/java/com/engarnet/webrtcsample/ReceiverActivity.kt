@@ -8,12 +8,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -95,20 +97,24 @@ private fun Content(
             text = "Receiver Screen",
             fontSize = 24.sp,
         )
-        Text(
-            text = "my ip: " + myIpAddress,
-            color = Color.Red,
-        )
-        Button(onClick = {
-            GlobalScope.launch {
-                withContext(Dispatchers.IO) {
-                    waitSignaling(context)
-                }
-            }
-        }) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                text = "start receiving",
+                text = "my ip: " + myIpAddress,
+                color = Color.Red,
             )
+            Button(onClick = {
+                GlobalScope.launch {
+                    withContext(Dispatchers.IO) {
+                        waitSignaling(context)
+                    }
+                }
+            }) {
+                Text(
+                    text = "start receiving",
+                )
+            }
         }
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -155,7 +161,7 @@ private fun sendAnswer(
         writer.write(answer)
         writer.flush()
         writer.close()
-    } catch(throwable: Throwable) {
+    } catch (throwable: Throwable) {
         Log.e("WebRTCSample", "sendAnswer", throwable)
     }
 }
@@ -300,7 +306,7 @@ private fun receive(
 
         override fun onCreateSuccess(p0: SessionDescription?) = Unit
         override fun onCreateFailure(p0: String?) = Unit
-        override fun onSetFailure(p0: String?)  {
+        override fun onSetFailure(p0: String?) {
             val a = 0
         }
     }, SessionDescription(SessionDescription.Type.OFFER, offer))

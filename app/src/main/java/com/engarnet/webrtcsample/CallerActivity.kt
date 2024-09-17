@@ -8,8 +8,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -19,9 +22,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -70,7 +78,12 @@ class CallerActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Content(
                         modifier = Modifier.padding(innerPadding),
-                        myIpAddress = arrayOf<Int>(myIpAddress, myIpAddress shr 8,myIpAddress shr 16,myIpAddress shr 24).map{it and 0xff}.joinToString("."),
+                        myIpAddress = arrayOf<Int>(
+                            myIpAddress,
+                            myIpAddress shr 8,
+                            myIpAddress shr 16,
+                            myIpAddress shr 24
+                        ).map { it and 0xff }.joinToString("."),
                     )
                 }
             }
@@ -88,6 +101,7 @@ private fun Content(
     myIpAddress: String,
 ) {
     val context = LocalContext.current
+    val focusRequester = remember { FocusRequester() }
     var ipAddressText by remember {
         mutableStateOf(myIpAddress)
     }
@@ -102,19 +116,39 @@ private fun Content(
             text = "my ip: " + myIpAddress,
             color = Color.Red,
         )
-        TextField(
-            value = ipAddressText,
-            placeholder = { Text("Enter Receiver IP Address") },
-            onValueChange = {
-                ipAddressText = it
-            },
-        )
-        Button(onClick = {
-            call(context, ipAddressText)
-        }) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                text = "start calling",
+                text = "dest ip: ",
             )
+            TextField(
+                modifier = Modifier.weight(1f, false),
+                value = ipAddressText,
+                placeholder = { Text("Enter Receiver IP Address") },
+                keyboardActions = KeyboardActions(onDone = {}),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    autoCorrect = false,
+                ),
+                singleLine = true,
+                onValueChange = {
+                    ipAddressText = it
+                },
+            )
+            Button(
+                modifier = Modifier
+                    .focusRequester(focusRequester)
+                    .focusTarget(),
+                onClick = {
+                    focusRequester.requestFocus()
+                    call(context, ipAddressText)
+                }
+            ) {
+                Text(
+                    text = "start calling",
+                )
+            }
         }
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -248,7 +282,7 @@ private fun call(
     peerConnection?.createOffer(object : SdpObserver {
         override fun onCreateSuccess(p0: SessionDescription?) {
             Log.d("WebRTCSample", "onCreateSuccess: $p0")
-            peerConnection!!.setLocalDescription(object: SdpObserver{
+            peerConnection!!.setLocalDescription(object : SdpObserver {
                 override fun onCreateSuccess(p0: SessionDescription?) = Unit
                 override fun onSetSuccess() = Unit
                 override fun onCreateFailure(p0: String?) = Unit
